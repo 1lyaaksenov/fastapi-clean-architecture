@@ -1,0 +1,60 @@
+nameOverride: ""
+
+image:
+  repository: registry.gitlab.com/CHANGE/ME
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 1
+
+env: dev
+
+db:
+  user: app
+  port: "5432"
+  externalHost: ""
+
+secrets:
+  dbPassword: ""
+  secretKey: ""
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+  nodePort: null
+
+ingress:
+  enabled: true
+  className: nginx
+  host: dev.fastapi.local
+  annotations: {}
+  tls: []
+
+probes:
+  path: /
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 384Mi
+
+migration:
+  enabled: true
+  backoffLimit: 3
+
+postgresql:
+  enabled: true
+  image: postgres:15-alpine
+  storage: 1Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

@@ -1,0 +1,14 @@
+.git
+.gitlab-ci.yml
+.env
+.env.*
+!.env.example
+**/__pycache__
+.venv
+venv
+.pytest_cache
+.ruff_cache
+.cache
+k8s
+docker-compose.yml
+README.md

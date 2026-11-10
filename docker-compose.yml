@@ -1,0 +1,45 @@
+# Локальный стенд:  docker compose up --build -d
+# Настройки берутся из файла .env (см. .env.example).
+
+services:
+  # --- PostgreSQL ---
+  db:
+    image: postgres:15-alpine          # версия закреплена, не latest
+    environment:
+      POSTGRES_USER: ${DB_USER:?задайте DB_USER в .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD в .env}
+      POSTGRES_DB: ${POSTGRES_DB:?задайте POSTGRES_DB в .env}   # база создаётся при первом запуске
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # данные переживают перезапуск
+    healthcheck:                          # другие сервисы ждут, пока БД будет готова
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    # порт БД наружу не публикуем: приложение ходит к ней по внутренней сети compose
+
+  # --- Одноразовая задача: применить миграции (создать таблицы) ---
+  migrate:
+    build: .
+    image: fastapi-app:local
+    env_file: .env
+    command: ["sh", "-c", "alembic -x ENV=$$ENV upgrade head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # --- Приложение ---
+  app:
+    image: fastapi-app:local
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully   # стартует только после успешных миграций
+    restart: unless-stopped
+
+volumes:
+  pgdata:

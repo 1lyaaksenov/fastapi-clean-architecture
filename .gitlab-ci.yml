@@ -1,0 +1,134 @@
+# Пайплайн: Test => Build => Push => Deploy
+stages:
+  - test
+  - build
+  - push
+  - deploy
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+variables:
+  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+
+.python:
+  image: python:3.10-slim
+  cache:
+    key: pip-$CI_COMMIT_REF_SLUG
+    paths:
+      - .cache/pip
+
+lint:
+  extends: .python
+  stage: test
+  script:
+    - pip install ruff
+    - ruff check app --select E9,F63,F7,F82
+
+check-manifests:
+  extends: .python
+  stage: test
+  script:
+    - pip install pyyaml
+    - python -c "import glob, yaml; [list(yaml.safe_load_all(open(f))) for f in glob.glob('k8s/*.yaml')]"
+
+pytest:
+  extends: .python
+  stage: test
+  services:
+    - name: postgres:15-alpine
+      alias: postgres
+  variables:
+    POSTGRES_USER: ci
+    POSTGRES_PASSWORD: cipassword
+    POSTGRES_DB: test-fca
+    ENV: test
+    DB: postgresql
+    DB_USER: ci
+    DB_PASSWORD: cipassword
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    SECRET_KEY: ci-secret
+  script:
+    - pip install -r requirements.txt pytest
+    - alembic -x ENV=test upgrade head
+    - pytest -q
+
+build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile --destination $IMAGE --no-push --tar-path image.tar
+  artifacts:
+    paths:
+      - image.tar
+    expire_in: 1 hour
+
+push:
+  stage: push
+  image:
+    name: gcr.io/go-containerregistry/crane:debug
+    entrypoint: [""]
+  needs:
+    - build
+  script:
+    - crane auth login $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD
+    - crane push image.tar $IMAGE
+    - crane tag $IMAGE latest
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.deploy:
+  stage: deploy
+  image:
+    name: alpine/k8s:1.30.2
+    entrypoint: [""]
+  needs:
+    - push
+  script:
+    - sed -i "s#fastapi-app:local#$IMAGE#" $K8S_DIR/deployment.yaml $K8S_DIR/migrate-job.yaml
+    - kubectl apply -f $K8S_DIR/namespace.yaml
+    - kubectl apply -f $K8S_DIR/configmap.yaml
+    - |
+      kubectl -n $NAMESPACE create secret generic app-secret \
+        --from-literal=DB_PASSWORD=$APP_DB_PASSWORD \
+        --from-literal=SECRET_KEY=$APP_SECRET_KEY \
+        --dry-run=client -o yaml | kubectl apply -f -
+    - |
+      kubectl -n $NAMESPACE create secret docker-registry gitlab-registry \
+        --docker-server=$CI_REGISTRY \
+        --docker-username=$CI_DEPLOY_USER \
+        --docker-password=$CI_DEPLOY_PASSWORD \
+        --dry-run=client -o yaml | kubectl apply -f -
+    - kubectl apply -f $K8S_DIR/postgres.yaml
+    - kubectl -n $NAMESPACE rollout status statefulset/postgres --timeout=180s
+    - kubectl -n $NAMESPACE delete job migrate --ignore-not-found
+    - kubectl apply -f $K8S_DIR/migrate-job.yaml
+    - |
+      kubectl -n $NAMESPACE wait --for=condition=complete job/migrate --timeout=300s || {
+        kubectl -n $NAMESPACE logs job/migrate
+        exit 1
+      }
+    - kubectl apply -f $K8S_DIR/deployment.yaml -f $K8S_DIR/service.yaml -f $K8S_DIR/ingress.yaml
+    - |
+      kubectl -n $NAMESPACE rollout status deployment/fastapi-app --timeout=180s || {
+        kubectl -n $NAMESPACE rollout undo deployment/fastapi-app
+        exit 1
+      }
+
+deploy:development:
+  extends: .deploy
+  variables:
+    K8S_DIR: k8s
+    NAMESPACE: fastapi-dev
+  environment:
+    name: development
+    url: http://dev.fastapi.local
+  resource_group: development
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

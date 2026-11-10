@@ -1,0 +1,5 @@
+# Отдельное пространство проекта для окружения Development
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fastapi-dev

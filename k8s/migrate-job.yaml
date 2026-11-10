@@ -1,0 +1,23 @@
+# Одноразовая задача: применяет миграции (создаёт таблицы).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  namespace: fastapi-dev
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      imagePullSecrets:
+        - name: gitlab-registry
+      containers:
+        - name: migrate
+          image: fastapi-app:local
+          command: ["sh", "-c", "alembic -x ENV=$ENV upgrade head"]
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secret
