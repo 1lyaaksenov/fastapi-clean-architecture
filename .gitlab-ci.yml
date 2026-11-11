@@ -55,7 +55,6 @@ pytest:
     SECRET_KEY: ci-secret
   script:
     - pip install -r requirements.txt pytest
-    - alembic -x ENV=test upgrade head
     - pytest -q
 
 build:
