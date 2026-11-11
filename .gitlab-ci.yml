@@ -1,3 +1,4 @@
+
 # Пайплайн: Test => Build => Push => Deploy
 stages:
   - test
@@ -77,9 +78,9 @@ push:
   needs:
     - build
   script:
-    - crane auth login $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD
-    - crane push image.tar $IMAGE
-    - crane tag $IMAGE latest
+    - crane auth login $CI_REGISTRY -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD --insecure
+    - crane push image.tar $IMAGE --insecure
+    - crane tag $IMAGE latest --insecure
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
