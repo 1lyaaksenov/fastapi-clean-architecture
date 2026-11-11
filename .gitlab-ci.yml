@@ -12,8 +12,8 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 variables:
-  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
-  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip
+  IMAGE: "$CI_REGISTRY/$CI_PROJECT_PATH:$CI_COMMIT_SHORT_SHA"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
 .python:
   image: python:3.10-slim
